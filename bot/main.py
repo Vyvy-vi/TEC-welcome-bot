@@ -4,8 +4,10 @@ from dotenv import load_dotenv
 import asyncio
 import logging
 
+import dhooks_lite
+
 import lightbulb
-from hikari import Intents, Embed, events
+from hikari import Intents, Embed, events, webhooks, errors
 from hikari.impl import event_manager_base
 
 load_dotenv()
@@ -16,7 +18,7 @@ if os.name != "nt":
 
 bot = lightbulb.Bot(
     token=os.getenv("DISCORD_BOT_TOKEN"),
-    prefix="!",
+    prefix="^",
     intents=Intents.ALL,
     logs={
         "version": 1,
@@ -38,13 +40,15 @@ class WelcomePlugin(lightbulb.Plugin):
     def __init__(self, bot):
         super().__init__()
         self.bot = bot
+        self.log_channel_hook = dhooks_lite.Webhook(os.getenv("LOG_CHANNEL_WEBHOOK_LINK"))
 
     async def form_runner(self, member):
         try:
+            details = {}
             msg = await member.send(
                 Embed(
-                    title="Preferred name and pronouns, and handles",
-                    description="We want to know how would you like to be addressed and that could be by your name or by your handle. If you like, we would love to welcome you to our communities on twitter and telegram, in case you want to drop your handles!",
+                    title="How would you like to be addressed?",
+                    description="(Could be a name, nickname, handle, etc.). We would also love to welcome you to our communities on Twitter and Telegram, in case you want to drop your handles!",
                     color=0xdefb48
                 )
             )
@@ -53,17 +57,19 @@ class WelcomePlugin(lightbulb.Plugin):
                 180.0,
                 lambda event: event.author.id == member.id
             )
-            print(response.message.content)
+            details["name"] = response.message.content
 
             msg = await member.send(
                 Embed(
-                    title="What brought you here?",
-                    description="- Proposals for TEC Funding(research, TE Education)\n\
-- Contributor in the TEC\n\
-- Educator\n\
-- Token Engineer\n\
-- Social Science/Cultural Build/Governance, etc.\n\
-- Partnership\n",
+                    title="Where did you hear about the TEC? What brings you here?",
+                    description="All info is welcome, and here are just some ideas:\n\
+- You want to learn more and participate.\n\
+- You’re interested in submitting a proposal for TEC funding (TE research and education).\n\
+- You are attracted to the Cultural Build.\n\
+- You are attracted to a particular Working Group.\n\
+- Your DAO is interested in a partnership.\n\n\
+You can be a token engineer, a social scientist, a scientist, a data scientist, in the arts or humanities or something else!\n\
+Please share as much as you would like. It will help us to get to know you and steward you in the right direction as you join the TEC community!",
                     color=0xdefb48
                 )
             )
@@ -72,7 +78,17 @@ class WelcomePlugin(lightbulb.Plugin):
                 180.0,
                 lambda event: event.author.id == member.id
             )
-            print(response.message.content)
+            details['background'] = response.message.content
+
+            self.log_channel_hook.execute(
+                embeds=[dhooks_lite.Embed(
+                    title=f"{member} joined the server!",
+                    description=f"\n\
+**1) How would you like to be addressed?**\n{details['name']}\n\n\
+**2) Where did you hear about the TEC? What brings you here?**\n{details['background']}",
+                    color=0xdefb48
+                )]
+            )
 
             await member.send(
                     Embed(
@@ -100,7 +116,7 @@ Please feel free to look around, and reach out on Discord to `@Suga#8514` (our o
         except asyncio.TimeoutError:
             await member.send(
                 Embed(
-                    description="That form timed out, to fill the same, use the command- `!welcome` and follow the instructions.",
+                    description="That form timed out, to fill the same, use the command- `^welcome` and follow the instructions.",
                     color=0xff0000
                 )
             )
@@ -108,32 +124,40 @@ Please feel free to look around, and reach out on Discord to `@Suga#8514` (our o
 
 
     async def greeting(self, member):
-        msg = await member.send(
-            Embed(
-                title="Welcome to the TEC!",
-                description="It would be great if you could share some more info with us by filling a small form. To start filling it react to this mesage with a 📝",
-                color=0xdefb48
-            )
-        )
-        await msg.add_reaction('📝')
-
         try:
-            reaction = await self.bot.wait_for(
-                events.DMReactionAddEvent,
-                180.0,
-                lambda event: event.user_id == member.id
-            )
-            await self.form_runner(member)
-        except asyncio.TimeoutError:
-            await msg.remove_reaction(
-                '📝',
-                user=self.bot.get_me()
-            )
-            await member.send(
+            msg = await member.send(
                 Embed(
-                    description="That form timed out, to fill the same, use the command- `!welcome` and follow the instructions.",
-                    color=0xff0000
+                    title="Welcome to the TEC!",
+                    description="It would be great if you could share some more info with us by filling a small form. To start filling it react to this mesage with a 📝",
+                    color=0xdefb48
                 )
+            )
+            await msg.add_reaction('📝')
+
+            try:
+                reaction = await self.bot.wait_for(
+                    events.DMReactionAddEvent,
+                    180.0,
+                    lambda event: event.user_id == member.id
+                )
+                await self.form_runner(member)
+            except asyncio.TimeoutError:
+                await msg.remove_reaction(
+                    '📝',
+                    user=self.bot.get_me()
+                )
+                await member.send(
+                    Embed(
+                        description="That form timed out, to fill the same, use the command- `^welcome` and follow the instructions.",
+                        color=0xff0000
+                    )
+                )
+        except errors.ForbiddenError:
+            await self.log_channel_hook.execute(
+                embeds=[Embed(
+                    description=f"Error: Couldn't send DM to {member.mention}",
+                    color=0xff0000
+                )]
             )
 
     @lightbulb.dm_only()
