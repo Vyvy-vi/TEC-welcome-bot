@@ -48,7 +48,7 @@ class WelcomePlugin(lightbulb.Plugin):
             msg = await member.send(
                 Embed(
                     title="How would you like to be addressed?",
-                    description="(Could be a name, nickname, handle, etc.). We would also love to welcome you to our communities on Twitter and Telegram, in case you want to drop your handles!",
+                    description="(Could be a name, nickname, handle, etc.). We would also love to welcome you to our communities on Twitter and Telegram, if you would like to share your handles",
                     color=0xdefb48
                 )
             )
@@ -92,7 +92,7 @@ Please share as much as you would like. It will help us to get to know you and s
 
             await member.send(
                     Embed(
-                        description="Thanks for filling this form!",
+                        description="Thanks for filling out this form!",
                         color=0x00ff00
                     )
             )
