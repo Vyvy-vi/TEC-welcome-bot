@@ -2,13 +2,12 @@ import os
 from dotenv import load_dotenv
 
 import asyncio
-import logging
 
 import dhooks_lite
 
 import lightbulb
-from hikari import Intents, Embed, events, webhooks, errors
-from hikari.impl import event_manager_base
+from hikari import Intents, Embed, events, errors
+
 
 load_dotenv()
 
@@ -18,7 +17,7 @@ if os.name != "nt":
 
 bot = lightbulb.Bot(
     token=os.getenv("DISCORD_BOT_TOKEN"),
-    prefix="^",
+    prefix="!",
     intents=Intents.ALL,
     logs={
         "version": 1,
@@ -31,9 +30,11 @@ bot = lightbulb.Bot(
     }
 )
 
+
 @bot.command()
 async def ping(ctx):
     await ctx.respond("Pong!")
+
 
 class WelcomePlugin(lightbulb.Plugin):
 
@@ -41,77 +42,132 @@ class WelcomePlugin(lightbulb.Plugin):
         super().__init__()
         self.bot = bot
         self.log_channel_hook = dhooks_lite.Webhook(os.getenv("LOG_CHANNEL_WEBHOOK_LINK"))
+        self.questions = [
+            {
+                "title": "How would you like to be addressed?",
+                "sub": "What name(s) and pronouns would you like us to use?",
+                "type": "text"
+            },
+            {
+                "title": "Why did you come to the TEC?",
+                "options": [
+                    "[Curious] - I’m curious to learn more about TEC in general",
+                    "[Future Contributor] - I’d like to contribute to building or improving the TEC",
+                    "[Proposals] - I’d like to submit a proposal in order to receive TEC funding",
+                    "[Partnerships] - I want to build a partnership between my DAO and the TEC",
+                    "[Education] - I want to learn more about Web3, DAOs, and/or Token Engineering",
+                    "[Other] - [Long Answer Text Box]"
+                ],
+                "emojis": [
+                    '🤔',
+                    '🛠️',
+                    '📜',
+                    '🤝',
+                    '📚',
+                    '➕'
+                ],
+                "type": "choice"
+            },
+            {
+                "title": "How familiar are you with web3?",
+                "type": "text"
+            },
+            {
+                "title": "How did you find out about the TEC?",
+                "type": "text"
+            },
+            {
+                "title": "Which timezone are you in?",
+                "type": "text"
+            }
+        ]
 
     async def form_runner(self, member):
         try:
-            details = {}
-            msg = await member.send(
-                Embed(
-                    title="How would you like to be addressed?",
-                    description="(Could be a name, nickname, handle, etc.). We would also love to welcome you to our communities on Twitter and Telegram, if you would like to share your handles",
-                    color=0xdefb48
-                )
-            )
-            response = await self.bot.wait_for(
-                events.DMMessageCreateEvent,
-                180.0,
-                lambda event: event.author.id == member.id
-            )
-            details["name"] = response.message.content
+            details = []
 
-            msg = await member.send(
-                Embed(
-                    title="Where did you hear about the TEC? What brings you here?",
-                    description="All info is welcome, and here are just some ideas:\n\
-- You want to learn more and participate.\n\
-- You’re interested in submitting a proposal for TEC funding (TE research and education).\n\
-- You are attracted to the Cultural Build.\n\
-- You are attracted to a particular Working Group.\n\
-- Your DAO is interested in a partnership.\n\n\
-You can be a token engineer, a social scientist, a scientist, a data scientist, in the arts or humanities or something else!\n\
-Please share as much as you would like. It will help us to get to know you and steward you in the right direction as you join the TEC community!",
-                    color=0xdefb48
-                )
-            )
-            response = await self.bot.wait_for(
-                events.DMMessageCreateEvent,
-                180.0,
-                lambda event: event.author.id == member.id
-            )
-            details['background'] = response.message.content
+            for ques in self.questions:
+                if ques['type'] == 'text':
+                    await member.send(
+                        Embed(
+                            title=ques['title'],
+                            description=ques['sub'] if 'sub' in ques else None,
+                            color=0xdefb48
+                        )
+                    )
+                    response = await self.bot.wait_for(
+                        events.DMMessageCreateEvent,
+                        180.0,
+                        lambda event: event.author.id == member.id
+                    )
+                    details.append(response.message.content)
+                elif ques['type'] == 'choice':
+                    msg = await member.send(
+                        Embed(
+                            title=ques['title'],
+                            description='\n'.join([f"{ques['emojis'][i]} {ques['options'][i]}" for i in range(len(ques['options']))]),
+                            color=0xdefb48
+                        )
+                    )
+
+                    for emoji in ques['emojis']:
+                        await msg.add_reaction(emoji)
+
+                    content = ""
+
+                    try:
+                        reaction = await self.bot.wait_for(
+                            events.DMReactionAddEvent,
+                            180.0,
+                            lambda event: (event.user_id == member.id) and (event.emoji_name in ques['emojis'])
+                        )
+                        content += [ques["options"][i] for i in range(len(ques['options'])) if ques['emojis'][i] == reaction.emoji_name][0]
+                        if reaction.emoji_name == emoji[-1]:
+                            await member.send(Embed(description="You can enter a more detailed description in a message below..."))
+                            response = await self.bot.wait_for(
+                                events.DMMessageCreateEvent,
+                                180.0,
+                                lambda event: event.author_id == member.id
+                            )
+                            content += f'\n{response.message.content}'
+
+                        details.append(content)
+                    except asyncio.TimeoutError:
+                        for emoji in ques['emojis']:
+                            await msg.remove_reaction(
+                                emoji,
+                                user=self.bot.get_me()
+                            )
+
+                else:
+                    await member.send("Something's wrong... Oh no!")
+
+
+            def get_field(i):
+                title = self.questions[i].get('title')
+                sub =  self.questions[i].get('sub')
+
+                title = '' if not title else title
+                sub = '' if not sub else sub
+                return f"**{title + ' - ' + sub}**\n{details[i]}"
 
             self.log_channel_hook.execute(
                 embeds=[dhooks_lite.Embed(
                     title=f"{member} joined the server!",
-                    description=f"\n\
-**1) How would you like to be addressed?**\n{details['name']}\n\n\
-**2) Where did you hear about the TEC? What brings you here?**\n{details['background']}",
+                    description="\n\n".join(
+                        [f"{get_field(i)}" for i in range(len(details))]
+                    ),
                     color=0xdefb48
                 )]
             )
 
-            await member.send(
-                    Embed(
-                        description="Thanks for filling out this form!",
-                        color=0x00ff00
-                    )
-            )
+
             await member.send(
                 Embed(
-                    title="Welcome to the TEC!",
-                    description=f"Hi {member.mention}, and welcome to the TEC! <:TEC:835016327542210560>\n\
-❓ Please join our weekly orientation Call with your questions, suggestions or feedback on Wednesdays at 6pm CET on our [#!community-hall](https://discord.gg/Yr7jWKY2qE) voic channel on TEC Discord.\n\
-🌐 Join the community call on Discord on Thursdays at 7pm CET.\n\n\
-ℹ️  Here are some links to get you started:\n\
-- 🗓️ **TEC Calendar** ⏰\nOur meetings are open to all. Find one in our calendar; looking forward to seeing you there!\nhttps://calendar.google.com/calendar/u/0/embed?src=5mkep1ad1j860k6g7i7fr8plq0@group.calendar.google.com&ctz=Europe/Berlin\n\
-- 📽️  **TEC YouTube** 🎞️\nThe TEC is proactive to transparency, and so our Working Group sessions are all available on Youtube.\nhttps://www.youtube.com/channel/UCagCOhMqMNU29rWx259-tcg\n\
-- 📜 **TEC Blog** 📋\nAnd read the latest posts on our blog.\nhttps://medium.com/token-engineering-commons/\n\n\
-Please feel free to look around, and reach out on Discord to `@Suga#8514` (our onboarding coordinator) if you have any questions, or want to schedule a 1-on-1\n<:TEC:835016327542210560> Enjoy your stay! See you soon. 👋\n",
-                    color=0xdefb48,
-                    url="https://tecommons.org/"
+                    description="Thanks for filling out this form! To continue your journey, visit the #your-guide channel...",
+                    color=0x00ff00
                 )
             )
-            await member.send("https://www.youtube.com/watch?v=vf1rOMDzw38")
 
         except asyncio.TimeoutError:
             await member.send(
@@ -167,6 +223,14 @@ Please feel free to look around, and reach out on Discord to `@Suga#8514` (our o
 
     @lightbulb.plugins.listener(events.MemberCreateEvent)
     async def send_greetings(self, event):
+        try:
+            self.add_data(
+                str(event.member.id),
+                event.member.username + '#' + event.member.discriminator
+            )
+        except Exception as e:
+            await event.member.send(f"Error -\n{e}")
+            print(e)
         await self.greeting(event.member)
 
 
