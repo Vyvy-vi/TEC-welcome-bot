@@ -17,7 +17,7 @@ if os.name != "nt":
 
 bot = lightbulb.Bot(
     token=os.getenv("DISCORD_BOT_TOKEN"),
-    prefix="!",
+    prefix="^",
     intents=Intents.ALL,
     logs={
         "version": 1,
