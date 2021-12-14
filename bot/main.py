@@ -105,7 +105,7 @@ class WelcomePlugin(lightbulb.Plugin):
                     msg = await member.send(
                         Embed(
                             title=ques['title'],
-                            description='\n'.join([f"{ques['emojis'][i]} {ques['options'][i]}" for i in range(len(ques['options']))]),
+                            description="React with an emoji to make your choice for this question:\n\n" + '\n'.join([f"{ques['emojis'][i]} {ques['options'][i]}" for i in range(len(ques['options']))]),
                             color=0xdefb48
                         )
                     )
@@ -224,10 +224,13 @@ class WelcomePlugin(lightbulb.Plugin):
     @lightbulb.plugins.listener(events.MemberCreateEvent)
     async def send_greetings(self, event):
         try:
+            print(f"{event.member} entered the server...")
+            """
             self.add_data(
                 str(event.member.id),
                 event.member.username + '#' + event.member.discriminator
             )
+            """
         except Exception as e:
             await event.member.send(f"Error -\n{e}")
             print(e)
